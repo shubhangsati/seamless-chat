@@ -211,12 +211,54 @@ export const createPluginStoreSlice: StateCreator<
   useFetchInstalledPlugins: (enabled: boolean) =>
     useSWR<LobeTool[]>(enabled ? INSTALLED_PLUGINS : null, pluginService.getInstalledPlugins, {
       fallbackData: [],
-      onSuccess: (data) => {
+      onSuccess: async (data) => {
         set(
           { installedPlugins: data, loadingInstallPlugins: false },
           false,
           n('useFetchInstalledPlugins'),
         );
+
+        // Auto-fetch manifests for MCP plugins that don't have them
+        const mcpPluginsWithoutManifests = data.filter(
+          (plugin) =>
+            plugin.type === 'customPlugin' &&
+            plugin.customParams?.mcp?.type === 'http' &&
+            plugin.customParams?.mcp?.url &&
+            !plugin.manifest,
+        );
+
+        if (mcpPluginsWithoutManifests.length > 0) {
+          console.log(
+            `Found ${mcpPluginsWithoutManifests.length} MCP plugins without manifests, fetching...`,
+          );
+
+          for (const plugin of mcpPluginsWithoutManifests) {
+            try {
+              const { mcpService } = await import('@/services/mcp');
+              const manifest = await mcpService.getStreamableMcpServerManifest({
+                auth: plugin.customParams!.mcp!.auth,
+                headers: plugin.customParams!.mcp!.headers,
+                identifier: plugin.identifier,
+                metadata: {
+                  avatar: plugin.customParams!.avatar,
+                  description: plugin.customParams!.description,
+                },
+                url: plugin.customParams!.mcp!.url!,
+              });
+
+              // Update the plugin with the fetched manifest
+              await pluginService.updatePluginManifest(plugin.identifier, manifest);
+              console.log(`Manifest auto-fetched for plugin: ${plugin.identifier}`);
+            } catch (error) {
+              console.warn(`Failed to auto-fetch manifest for plugin ${plugin.identifier}:`, error);
+            }
+          }
+
+          // Refresh plugins after manifest fetching
+          if (mcpPluginsWithoutManifests.length > 0) {
+            setTimeout(() => get().refreshPlugins(), 1000);
+          }
+        }
       },
       revalidateOnFocus: false,
       suspense: true,

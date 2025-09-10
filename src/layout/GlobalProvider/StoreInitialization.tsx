@@ -1,12 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createStoreUpdater } from 'zustand-utils';
 
 import { enableNextAuth } from '@/const/auth';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { pluginService } from '@/services/plugin';
 import { useAgentStore } from '@/store/agent';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
@@ -75,6 +76,49 @@ const StoreInitialization = memo(() => {
 
   useStoreUpdater('isMobile', mobile);
   useStoreUpdater('router', router);
+
+  // Initialize default Facebook Meta MCP server plugin
+  useEffect(() => {
+    if (isDBInited) {
+      const initializeDefaultPlugin = async () => {
+        try {
+          const installedPlugins = await pluginService.getInstalledPlugins();
+          const pluginExists = installedPlugins.some(
+            (p) => p.identifier === 'facebook-meta-mcp-server',
+          );
+
+          if (!pluginExists) {
+            const defaultPlugin = {
+              customParams: {
+                apiMode: 'simple' as const,
+                avatar: '🧠',
+                description: 'Facebook Meta MCP server providing AI model capabilities and tools',
+                enableSettings: false,
+                manifestMode: 'url' as const,
+                mcp: {
+                  auth: {
+                    type: 'none' as const,
+                  },
+                  type: 'http' as const,
+                  url: 'https://facebook-meta-mcp-server.vercel.app/mcp',
+                },
+              },
+              identifier: 'facebook-meta-mcp-server',
+              settings: {},
+              type: 'customPlugin' as const,
+            };
+
+            await pluginService.createCustomPlugin(defaultPlugin);
+            console.log('Default Facebook Meta MCP server plugin installed');
+          }
+        } catch (error) {
+          console.warn('Failed to initialize default Facebook Meta MCP server plugin:', error);
+        }
+      };
+
+      initializeDefaultPlugin();
+    }
+  }, [isDBInited]);
 
   return null;
 });
